@@ -10,7 +10,7 @@ class ServiceConfigUpdatedEventTest {
 
     @Test
     void testEvent() {
-        ServiceConfig config = new ServiceConfig("test", List.of());
+        ServiceConfig config = new ServiceConfig(List.of());
         ServiceConfigUpdatedEvent event = new ServiceConfigUpdatedEvent(this, config);
 
         assertThat(event.getConfig()).isEqualTo(config);

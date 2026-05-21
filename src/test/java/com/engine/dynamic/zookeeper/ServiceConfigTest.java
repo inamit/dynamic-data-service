@@ -11,9 +11,8 @@ class ServiceConfigTest {
     @Test
     void testServiceConfig() {
         ServiceConfig.EntityConfig entityConfig = new ServiceConfig.EntityConfig("product", "/api/v1/products", "POSTGRES");
-        ServiceConfig config = new ServiceConfig("test-service", List.of(entityConfig));
+        ServiceConfig config = new ServiceConfig(List.of(entityConfig));
 
-        assertThat(config.serviceName()).isEqualTo("test-service");
         assertThat(config.entities()).hasSize(1);
 
         ServiceConfig.EntityConfig retrieved = config.entities().get(0);

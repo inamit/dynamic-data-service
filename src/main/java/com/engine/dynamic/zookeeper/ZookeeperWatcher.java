@@ -12,6 +12,9 @@ import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 @Component
 public class ZookeeperWatcher {
@@ -39,21 +42,21 @@ public class ZookeeperWatcher {
     @PostConstruct
     public void startWatching() {
         try {
-            String path = String.format("/%s/services/%s", appEnv, serviceName);
+            // Updated to the new structure: /${appEnv}/services/${serviceName}/entities
+            String path = String.format("/%s/services/%s/entities", appEnv, serviceName);
             logger.info("Setting up ZooKeeper watch at path: {}", path);
 
             // Ensure path exists
             if (curatorFramework.checkExists().forPath(path) == null) {
-                curatorFramework.create().creatingParentsIfNeeded().forPath(path, "{}".getBytes());
+                curatorFramework.create().creatingParentsIfNeeded().forPath(path, new byte[0]);
             }
 
             curatorCache = CuratorCache.build(curatorFramework, path);
             CuratorCacheListener listener = CuratorCacheListener.builder()
-                    .forChanges((oldNode, node) -> processData(node.getData()))
-                    .forCreates(node -> processData(node.getData()))
-                    .forInitialized(() -> {
-                        curatorCache.get(path).ifPresent(node -> processData(node.getData()));
-                    })
+                    .forChanges((oldNode, node) -> processEntities(path))
+                    .forCreates(node -> processEntities(path))
+                    .forDeletes(node -> processEntities(path))
+                    .forInitialized(() -> processEntities(path))
                     .build();
 
             curatorCache.listenable().addListener(listener);
@@ -63,17 +66,45 @@ public class ZookeeperWatcher {
         }
     }
 
-    private void processData(byte[] data) {
-        if (data != null && data.length > 0) {
-            try {
-                ServiceConfig config = objectMapper.readValue(data, ServiceConfig.class);
-                logger.info("Received updated config from ZooKeeper: {}", config);
-                eventPublisher.publishEvent(new ServiceConfigUpdatedEvent(this, config));
-            } catch (Exception e) {
-                logger.error("Failed to parse ZooKeeper config payload", e);
+    private void processEntities(String basePath) {
+        try {
+            List<String> children = curatorFramework.getChildren().forPath(basePath);
+            List<ServiceConfig.EntityConfig> entities = new ArrayList<>();
+
+            for (String child : children) {
+                String childPath = basePath + "/" + child;
+                byte[] data = curatorFramework.getData().forPath(childPath);
+
+                String type = child;
+                String endpointPath = "/api/v1/" + child;
+                String storageEngine = "POSTGRES";
+
+                if (data != null && data.length > 0) {
+                    try {
+                        Map<String, String> configMap = objectMapper.readValue(data, Map.class);
+                        if (configMap.containsKey("type")) {
+                            type = configMap.get("type");
+                        }
+                        if (configMap.containsKey("basePath")) {
+                            endpointPath = configMap.get("basePath");
+                        }
+                        if (configMap.containsKey("storageEngine")) {
+                            storageEngine = configMap.get("storageEngine");
+                        }
+                    } catch (Exception e) {
+                        logger.error("Failed to parse entity config for {}, using defaults", childPath, e);
+                    }
+                }
+
+                ServiceConfig.EntityConfig entityConfig = new ServiceConfig.EntityConfig(type, endpointPath, storageEngine);
+                entities.add(entityConfig);
             }
-        } else {
-            logger.warn("Received empty or null data from ZooKeeper path");
+
+            ServiceConfig config = new ServiceConfig(entities);
+            logger.info("Received updated config from ZooKeeper: {}", config);
+            eventPublisher.publishEvent(new ServiceConfigUpdatedEvent(this, config));
+        } catch (Exception e) {
+            logger.error("Failed to list and parse Zookeeper children at {}", basePath, e);
         }
     }
 

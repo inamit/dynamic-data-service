@@ -42,7 +42,7 @@ class DynamicRestHandlerTest {
 
     @BeforeEach
     void setUp() {
-        ServiceConfig config = new ServiceConfig("test-service", List.of(
+        ServiceConfig config = new ServiceConfig(List.of(
                 new ServiceConfig.EntityConfig("product", "/api/v1/products", "POSTGRES")
         ));
         handler.onApplicationEvent(new ServiceConfigUpdatedEvent(this, config));
